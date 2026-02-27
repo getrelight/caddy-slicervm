@@ -21,7 +21,7 @@ const (
 	statusNotFound
 )
 
-// vmInfo holds cached state for a single VM (identified by app/host group name).
+// vmInfo holds cached state for a single VM (identified by app tag).
 type vmInfo struct {
 	hostname string
 	ip       string
@@ -36,21 +36,24 @@ type vmInfo struct {
 
 // vmStateManager manages VM state and provides coalesced wake operations.
 type vmStateManager struct {
-	mu     sync.Mutex
-	vms    map[string]*vmInfo
-	client *sdk.SlicerClient
-	logger *zap.Logger
+	mu        sync.Mutex
+	vms       map[string]*vmInfo
+	client    *sdk.SlicerClient
+	hostGroup string
+	logger    *zap.Logger
 }
 
-func newVMStateManager(client *sdk.SlicerClient, logger *zap.Logger) *vmStateManager {
+func newVMStateManager(client *sdk.SlicerClient, hostGroup string, logger *zap.Logger) *vmStateManager {
 	return &vmStateManager{
-		vms:    make(map[string]*vmInfo),
-		client: client,
-		logger: logger,
+		vms:       make(map[string]*vmInfo),
+		client:    client,
+		hostGroup: hostGroup,
+		logger:    logger,
 	}
 }
 
 // lookup returns cached VM info, or fetches from the API on first access.
+// It finds the node in the host group that has a tag matching appName.
 func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, error) {
 	m.mu.Lock()
 	info, ok := m.vms[appName]
@@ -60,10 +63,23 @@ func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, e
 	}
 	m.mu.Unlock()
 
-	// First time seeing this app - fetch from Slicer
-	nodes, err := m.client.GetHostGroupNodes(ctx, appName)
+	// Fetch all nodes (GET /nodes returns status, hostgroup endpoint does not)
+	nodes, err := m.client.ListVMs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("fetching host group %q: %w", appName, err)
+		return nil, fmt.Errorf("listing VMs: %w", err)
+	}
+
+	var matched *sdk.SlicerNode
+	for i := range nodes {
+		for _, tag := range nodes[i].Tags {
+			if tag == appName {
+				matched = &nodes[i]
+				break
+			}
+		}
+		if matched != nil {
+			break
+		}
 	}
 
 	m.mu.Lock()
@@ -74,19 +90,18 @@ func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, e
 		return info, nil
 	}
 
-	if len(nodes) == 0 {
+	if matched == nil {
 		info := &vmInfo{status: statusNotFound}
 		m.vms[appName] = info
 		return info, nil
 	}
 
-	node := nodes[0]
 	info = &vmInfo{
-		hostname: node.Hostname,
-		ip:       node.IP,
+		hostname: matched.Hostname,
+		ip:       matched.IP,
 		lastSeen: time.Now(),
 	}
-	switch node.Status {
+	switch matched.Status {
 	case "Running":
 		info.status = statusRunning
 	case "Paused":
@@ -123,7 +138,6 @@ func (m *vmStateManager) ensureRunning(ctx context.Context, appName string, time
 
 func (m *vmStateManager) initiateWake(ctx context.Context, appName string, info *vmInfo, timeout time.Duration) (string, error) {
 	m.mu.Lock()
-	// Double-check under lock
 	if info.status == statusWaking {
 		m.mu.Unlock()
 		return m.waitForWake(ctx, appName, info, timeout)

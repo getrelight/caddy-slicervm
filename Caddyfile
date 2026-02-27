@@ -4,8 +4,9 @@
 
 *.apps.example.com {
 	slicervm {
-		slicer_url    http://127.0.0.1:8080
+		slicer_url    ~/slicer-mac/slicer.sock
 		slicer_token  {env.SLICER_TOKEN}
+		host_group    apps
 		idle_timeout  5m
 		wake_timeout  30s
 		app_port      8080

@@ -17,11 +17,12 @@ func init() {
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 //
 //	slicervm {
-//	    slicer_url    <url>
-//	    slicer_token  <token>
-//	    idle_timeout  <duration>
-//	    wake_timeout  <duration>
-//	    app_port      <port>
+//	    slicer_url     <url or socket path>
+//	    slicer_token   <token>
+//	    host_group     <name>
+//	    idle_timeout   <duration>
+//	    wake_timeout   <duration>
+//	    app_port       <port>
 //	    watch_interval <duration>
 //	}
 func (rs *SlicerVM) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -40,6 +41,12 @@ func (rs *SlicerVM) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			rs.SlicerToken = d.Val()
+
+		case "host_group":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			rs.HostGroup = d.Val()
 
 		case "idle_timeout":
 			if !d.NextArg() {
