@@ -1,0 +1,14 @@
+{
+	order slicervm before reverse_proxy
+}
+
+*.apps.example.com {
+	slicervm {
+		slicer_url    http://127.0.0.1:8080
+		slicer_token  {env.SLICER_TOKEN}
+		idle_timeout  5m
+		wake_timeout  30s
+		app_port      8080
+	}
+	reverse_proxy {http.vars.slicervm_upstream}
+}
