@@ -1,4 +1,4 @@
-module github.com/slicervm/caddy-slicervm
+module github.com/slicervm/caddy-relight-slicervm
 
 go 1.25.6
 

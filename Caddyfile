@@ -1,9 +1,35 @@
 {
-	order slicervm before reverse_proxy
+	order relight_slicervm before reverse_proxy
+
+	# Enable on-demand TLS for custom domains.
+	# The ask endpoint validates that a VM exists for the requested domain.
+	on_demand_tls {
+		ask http://127.0.0.1:5555/check
+	}
 }
 
+# Wildcard subdomains - uses wildcard cert from Let's Encrypt.
+# VM tag "myapp" matches requests to myapp.apps.example.com
 *.apps.example.com {
-	slicervm {
+	relight_slicervm {
+		slicer_url    ~/slicer-mac/slicer.sock
+		slicer_token  {env.SLICER_TOKEN}
+		host_group    apps
+		idle_timeout  5m
+		wake_timeout  30s
+		app_port      8080
+		ask_listen    127.0.0.1:5555
+	}
+	reverse_proxy {http.vars.relight_slicervm_upstream}
+}
+
+# Custom domains - on-demand TLS provisions certs automatically.
+# VM tag "myapp.com" matches requests to myapp.com
+https:// {
+	tls {
+		on_demand
+	}
+	relight_slicervm {
 		slicer_url    ~/slicer-mac/slicer.sock
 		slicer_token  {env.SLICER_TOKEN}
 		host_group    apps
@@ -11,5 +37,5 @@
 		wake_timeout  30s
 		app_port      8080
 	}
-	reverse_proxy {http.vars.slicervm_upstream}
+	reverse_proxy {http.vars.relight_slicervm_upstream}
 }

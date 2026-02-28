@@ -1,4 +1,4 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"fmt"
@@ -12,33 +12,33 @@ import (
 
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (rs *SlicerVM) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	appName := extractAppName(r)
-	if appName == "" {
-		http.Error(w, "could not determine app name from hostname", http.StatusBadRequest)
+	hostname := extractHostname(r)
+	if hostname == "" {
+		http.Error(w, "could not determine hostname", http.StatusBadRequest)
 		return nil
 	}
 
 	// Block until VM is running (fast - SlicerVM resume is sub-second)
-	ip, err := rs.stateMgr.ensureRunning(r.Context(), appName, time.Duration(rs.WakeTimeout))
+	ip, err := rs.stateMgr.ensureRunning(r.Context(), hostname, time.Duration(rs.WakeTimeout))
 	if err != nil {
-		rs.logger.Error("failed to ensure VM running", zap.String("app", appName), zap.Error(err))
+		rs.logger.Error("failed to ensure VM running", zap.String("domain", hostname), zap.Error(err))
 		if strings.Contains(err.Error(), "not found") {
-			http.Error(w, fmt.Sprintf("app %q not found", appName), http.StatusNotFound)
+			http.Error(w, fmt.Sprintf("app for %q not found", hostname), http.StatusNotFound)
 			return nil
 		}
 		w.Header().Set("Retry-After", "5")
-		http.Error(w, fmt.Sprintf("app %q is starting up, please retry", appName), http.StatusServiceUnavailable)
+		http.Error(w, fmt.Sprintf("app for %q is starting up, please retry", hostname), http.StatusServiceUnavailable)
 		return nil
 	}
 
 	// VM is running - record activity and set upstream for reverse_proxy
-	rs.stateMgr.touchLastSeen(appName)
+	rs.stateMgr.touchLastSeen(hostname)
 
 	upstream := fmt.Sprintf("%s:%d", ip, rs.AppPort)
-	caddyhttp.SetVar(r.Context(), "slicervm_upstream", upstream)
+	caddyhttp.SetVar(r.Context(), "relight_slicervm_upstream", upstream)
 
 	rs.logger.Debug("proxying request",
-		zap.String("app", appName),
+		zap.String("domain", hostname),
 		zap.String("upstream", upstream),
 		zap.String("path", r.URL.Path),
 	)
@@ -46,10 +46,9 @@ func (rs *SlicerVM) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddy
 	return next.ServeHTTP(w, r)
 }
 
-// extractAppName extracts the app name from the first subdomain label.
-// For example, "myapp.apps.example.com" returns "myapp".
-// Returns empty string if the hostname doesn't have enough parts.
-func extractAppName(r *http.Request) string {
+// extractHostname returns the hostname from the request, stripped of port.
+// Used as the lookup key for VM tag matching.
+func extractHostname(r *http.Request) string {
 	host := r.Host
 
 	// Strip port if present
@@ -60,10 +59,5 @@ func extractAppName(r *http.Request) string {
 		}
 	}
 
-	parts := strings.Split(host, ".")
-	if len(parts) < 3 {
-		return ""
-	}
-
-	return parts[0]
+	return host
 }

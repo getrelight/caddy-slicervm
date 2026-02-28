@@ -1,4 +1,4 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// SlicerVM is a Caddy HTTP middleware that routes subdomains to
+// SlicerVM is a Relight Caddy HTTP middleware that routes subdomains to
 // Slicer VMs and implements scale-to-zero by pausing idle VMs and
 // resuming them on incoming requests.
 type SlicerVM struct {
@@ -45,9 +45,16 @@ type SlicerVM struct {
 	// Default: 30s.
 	WatchInterval caddy.Duration `json:"watch_interval,omitempty"`
 
+	// AskListenAddr is the address for the on-demand TLS validation server.
+	// When set, an internal HTTP server starts that Caddy's on_demand_tls can
+	// query to check if a custom domain has a matching VM.
+	// Example: "127.0.0.1:5555"
+	AskListenAddr string `json:"ask_listen,omitempty"`
+
 	logger   *zap.Logger
 	client   *sdk.SlicerClient
 	stateMgr *vmStateManager
+	askSrv   *askServer
 }
 
 func (s *SlicerVM) Provision(ctx caddy.Context) error {
@@ -67,10 +74,18 @@ func (s *SlicerVM) Provision(ctx caddy.Context) error {
 	}
 
 	httpClient, baseURL := buildHTTPClient(s.SlicerURL)
-	s.client = sdk.NewSlicerClient(baseURL, s.SlicerToken, "caddy-slicervm", httpClient)
+	s.client = sdk.NewSlicerClient(baseURL, s.SlicerToken, "caddy-relight-slicervm", httpClient)
 	s.stateMgr = newVMStateManager(s.client, s.HostGroup, s.logger)
 
 	startIdleWatcher(s)
+
+	if s.AskListenAddr != "" {
+		ask, err := newAskServer(s.AskListenAddr, s.stateMgr, s.logger)
+		if err != nil {
+			return fmt.Errorf("starting ask server: %w", err)
+		}
+		s.askSrv = ask
+	}
 
 	return nil
 }
@@ -96,6 +111,9 @@ func (s *SlicerVM) Validate() error {
 
 func (s *SlicerVM) Cleanup() error {
 	stopIdleWatcher(s)
+	if s.askSrv != nil {
+		s.askSrv.close()
+	}
 	return nil
 }
 

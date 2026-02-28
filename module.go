@@ -1,4 +1,4 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"github.com/caddyserver/caddy/v2"
@@ -22,7 +22,7 @@ var (
 // CaddyModule returns the Caddy module information.
 func (SlicerVM) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.slicervm",
+		ID:  "http.handlers.relight_slicervm",
 		New: func() caddy.Module { return new(SlicerVM) },
 	}
 }

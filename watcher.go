@@ -1,4 +1,4 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"context"

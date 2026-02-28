@@ -1,8 +1,9 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,10 +54,12 @@ func newVMStateManager(client *sdk.SlicerClient, hostGroup string, logger *zap.L
 }
 
 // lookup returns cached VM info, or fetches from the API on first access.
-// It finds the node in the host group that has a tag matching appName.
-func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, error) {
+// It matches VM tags against the request hostname in two passes:
+//  1. Exact match - tag equals the full hostname (for custom domains like "myapp.com")
+//  2. First label match - tag equals the first subdomain label (for "myapp.apps.example.com" -> tag "myapp")
+func (m *vmStateManager) lookup(ctx context.Context, hostname string) (*vmInfo, error) {
 	m.mu.Lock()
-	info, ok := m.vms[appName]
+	info, ok := m.vms[hostname]
 	if ok {
 		m.mu.Unlock()
 		return info, nil
@@ -69,10 +72,17 @@ func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, e
 		return nil, fmt.Errorf("listing VMs: %w", err)
 	}
 
+	// Extract first subdomain label for fallback matching
+	firstLabel := ""
+	if idx := strings.Index(hostname, "."); idx > 0 {
+		firstLabel = hostname[:idx]
+	}
+
+	// Pass 1: exact hostname match (custom domains)
 	var matched *sdk.SlicerNode
 	for i := range nodes {
 		for _, tag := range nodes[i].Tags {
-			if tag == appName {
+			if tag == hostname {
 				matched = &nodes[i]
 				break
 			}
@@ -82,17 +92,32 @@ func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, e
 		}
 	}
 
+	// Pass 2: first subdomain label match (wildcard subdomains)
+	if matched == nil && firstLabel != "" {
+		for i := range nodes {
+			for _, tag := range nodes[i].Tags {
+				if tag == firstLabel {
+					matched = &nodes[i]
+					break
+				}
+			}
+			if matched != nil {
+				break
+			}
+		}
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	// Check again under lock
-	if info, ok := m.vms[appName]; ok {
+	if info, ok := m.vms[hostname]; ok {
 		return info, nil
 	}
 
 	if matched == nil {
 		info := &vmInfo{status: statusNotFound}
-		m.vms[appName] = info
+		m.vms[hostname] = info
 		return info, nil
 	}
 
@@ -109,7 +134,7 @@ func (m *vmStateManager) lookup(ctx context.Context, appName string) (*vmInfo, e
 	default:
 		info.status = statusUnknown
 	}
-	m.vms[appName] = info
+	m.vms[hostname] = info
 	return info, nil
 }
 

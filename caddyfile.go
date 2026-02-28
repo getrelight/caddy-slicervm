@@ -1,4 +1,4 @@
-package caddyslicervm
+package caddyrelightslicervm
 
 import (
 	"strconv"
@@ -11,12 +11,12 @@ import (
 )
 
 func init() {
-	httpcaddyfile.RegisterHandlerDirective("slicervm", parseCaddyfile)
+	httpcaddyfile.RegisterHandlerDirective("relight_slicervm", parseCaddyfile)
 }
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
 //
-//	slicervm {
+//	relight_slicervm {
 //	    slicer_url     <url or socket path>
 //	    slicer_token   <token>
 //	    host_group     <name>
@@ -87,6 +87,12 @@ func (rs *SlicerVM) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.Errf("parsing watch_interval: %v", err)
 			}
 			rs.WatchInterval = caddy.Duration(dur)
+
+		case "ask_listen":
+			if !d.NextArg() {
+				return d.ArgErr()
+			}
+			rs.AskListenAddr = d.Val()
 
 		default:
 			return d.Errf("unknown subdirective: %s", d.Val())
